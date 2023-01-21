@@ -35,21 +35,23 @@ func (r *Registrar) listenEvents() {
 				}
 			}
 
-			retryEvent := func(position int) {
+			retryEvent := func(position int, bus EventBus) {
 				// mark as not retryable if the config was not set.
 				if o.retry == nil && o.retry.max == 0 {
 					return
 				}
 
-				bus.options.retry.count += 1
-				bus.options.retry.fromPosition = position
+				o.retry.count += 1
+				o.retry.fromPosition = position
+
+				emit(bus)
 			}
 
 			for i, listener := range bus.listeners {
 				err := listener(context.Background(), bus.event)
 
 				if err != nil {
-					go retryEvent(i)
+					go retryEvent(i, bus)
 
 					// invoke any callback
 					// we may need to save in the database or log
