@@ -12,10 +12,22 @@ import (
 )
 
 func main() {
+	go func() {
+		for {
+			log.Printf("[main] Total current goroutine: %d", runtime.NumGoroutine())
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
 	bus.InitWithOptions(
-		bus.WithOptions(bus.WithSuccessCallback(func(e bus.EventBus) {
-			fmt.Println("success callback for event: ", e.Event.Name())
-		})),
+		bus.WithOptions(
+			bus.WithSuccessCallback(func(e bus.EventBus) {
+				fmt.Println("success callback for event: ", e.Event.Name())
+			}),
+			bus.WithErrorCallback(func(e bus.EventBus, err error) {
+				fmt.Println("error callback for event: ", e.Event.Name(), ", error: ", err.Error())
+			}),
+		),
 	)
 
 	bus.RegisterListener("order-delivered", func(ctx context.Context, e bus.Event) error {
@@ -34,12 +46,7 @@ func main() {
 
 	waitChan := make(chan bool)
 
-	go func() {
-		for {
-			log.Printf("[main] Total current goroutine: %d", runtime.NumGoroutine())
-			time.Sleep(1 * time.Second)
-		}
-	}()
+	time.Sleep(1 * time.Second)
 
 	order := OrderDeliveredEvent{
 		Customer: "Rendy",
