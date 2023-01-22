@@ -12,7 +12,11 @@ import (
 )
 
 func main() {
-	bus.InitRegistrar()
+	bus.InitWithOptions(
+		bus.WithOptions(bus.WithSuccessCallback(func(e bus.EventBus) {
+			fmt.Println("success callback for event: ", e.Event.Name())
+		})),
+	)
 
 	bus.RegisterListener("order-delivered", func(ctx context.Context, e bus.Event) error {
 		fmt.Println("Hello from bus: ", e.Name(), " with payload: ", string(e.Payload()))
@@ -25,8 +29,6 @@ func main() {
 			return errors.New("odd number")
 		}
 
-		return nil
-	}, func(ctx context.Context, e bus.Event) error {
 		return nil
 	})
 
@@ -44,7 +46,7 @@ func main() {
 		Total:    50001,
 	}
 
-	bus.EmitWithOptions(order, bus.WithOptions(bus.WithRetryOption(3)))
+	bus.EmitWithOptions(order, bus.WithEmitOptions(bus.WithRetryOption(3)))
 
 	order2 := OrderDeliveredEvent{
 		Customer: "Rendy 2",

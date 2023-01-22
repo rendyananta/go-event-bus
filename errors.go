@@ -3,6 +3,6 @@ package bus
 import "errors"
 
 var (
-	ErrEventAlreadyRegistered = errors.New("event already registered")
-	ErrEventNotRegistered     = errors.New("event is not registered")
+	ErrEventAlreadyRegistered = errors.New("Event already registered")
+	ErrEventNotRegistered     = errors.New("Event is not registered")
 )

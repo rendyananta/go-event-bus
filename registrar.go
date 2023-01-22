@@ -2,18 +2,64 @@ package bus
 
 import "context"
 
-// Registrar have function to hold an event and send the emitted event
-// to the event listener
+// Registrar have function to hold an Event and send the emitted Event
+// to the Event listener
 type Registrar struct {
 	channel        chan EventBus
-	quit           chan bool
 	eventListeners map[string][]Listener
+	options        *Options
+}
+
+type Options struct {
+	successCallback func(e EventBus)
+	errorCallback   func(e EventBus, err error)
+}
+
+func WithOptions(options ...func(options *Options)) *Options {
+	o := &Options{}
+
+	for _, applyOption := range options {
+		applyOption(o)
+	}
+
+	return o
+}
+
+func WithSuccessCallback(callback func(e EventBus)) func(options *Options) {
+	return func(options *Options) {
+		options.successCallback = callback
+	}
+}
+
+func WithErrorCallback(callback func(e EventBus, err error)) func(options *Options) {
+	return func(options *Options) {
+		options.errorCallback = callback
+	}
+}
+
+func Init() {
+	instance = &Registrar{
+		channel:        make(chan EventBus),
+		eventListeners: make(map[string][]Listener),
+	}
+
+	instance.listenEvents()
+}
+
+func InitWithOptions(opt *Options) {
+	instance = &Registrar{
+		channel:        make(chan EventBus),
+		eventListeners: make(map[string][]Listener),
+		options:        opt,
+	}
+
+	instance.listenEvents()
 }
 
 type EventBus struct {
-	event     Event
+	Event     Event
 	listeners []Listener
-	options   *Options
+	options   *EmitOptions
 }
 
 var (
@@ -48,39 +94,41 @@ func (r *Registrar) listenEvents() {
 			}
 
 			for i, listener := range bus.listeners {
-				err := listener(context.Background(), bus.event)
+				err := listener(context.Background(), bus.Event)
 
-				if err != nil {
-					go retryEvent(i, bus)
+				if err == nil {
+					// invoke success callback
+					if instance.options != nil && instance.options.successCallback != nil {
+						instance.options.successCallback(bus)
+					}
 
-					// invoke any callback
-					// we may need to save in the database or log
-					// or any actions preferred.
+					continue
+				}
+
+				// retry if err is not nil
+				go retryEvent(i, bus)
+
+				// invoke any callback
+				// we may need to save in the database or log
+				// or any actions preferred.
+				if instance.options != nil && instance.options.errorCallback != nil {
+					instance.options.errorCallback(bus, err)
 				}
 			}
 		}
 	}()
 }
 
-func InitRegistrar() {
-	instance = &Registrar{
-		channel:        make(chan EventBus),
-		eventListeners: make(map[string][]Listener),
-	}
-
-	instance.listenEvents()
-}
-
 func Emit(e Event) {
 	emit(EventBus{
-		event:     e,
+		Event:     e,
 		listeners: collectEventListeners(e.Name()),
 	})
 }
 
-func EmitWithOptions(e Event, o *Options) {
+func EmitWithOptions(e Event, o *EmitOptions) {
 	emit(EventBus{
-		event:     e,
+		Event:     e,
 		listeners: collectEventListeners(e.Name()),
 		options:   o,
 	})

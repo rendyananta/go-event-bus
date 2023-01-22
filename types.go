@@ -10,12 +10,12 @@ type RetryOption struct {
 	fromPosition int
 }
 
-type Options struct {
+type EmitOptions struct {
 	retry *RetryOption
 }
 
-func WithOptions(options ...func(options *Options)) *Options {
-	opt := &Options{}
+func WithEmitOptions(options ...func(options *EmitOptions)) *EmitOptions {
+	opt := &EmitOptions{}
 	for _, applyOption := range options {
 		applyOption(opt)
 	}
@@ -23,8 +23,8 @@ func WithOptions(options ...func(options *Options)) *Options {
 	return opt
 }
 
-func WithRetryOption(maxRetries int) func(option *Options) {
-	return func(option *Options) {
+func WithRetryOption(maxRetries int) func(option *EmitOptions) {
+	return func(option *EmitOptions) {
 		option.retry = &RetryOption{
 			max: maxRetries,
 		}
