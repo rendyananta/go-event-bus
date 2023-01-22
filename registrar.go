@@ -8,16 +8,17 @@ import (
 // Registrar have function to hold an Event and send the emitted Event
 // to the Event listener
 type Registrar struct {
-	channel        chan EventBus
-	eventListeners map[string][]Listener
-	options        *Options
+	channel          chan EventBus
+	eventListeners   map[string][]Listener
+	eventEmitOptions map[string]*EmitOptions
+	options          *Options
 }
 
 // Options define the registrar behaviour on controlling
 // callback, worker, etc.
 type Options struct {
-	successCallback func(e EventBus)
-	errorCallback   func(e EventBus, err error)
+	successCallback func(e EventBus, listenerPosition int)
+	errorCallback   func(e EventBus, listenerPosition int, err error)
 	maxWorker       int
 }
 
@@ -34,7 +35,7 @@ func WithOptions(options ...func(options *Options)) *Options {
 
 // WithSuccessCallback is function that return a function to set a success callback.
 // Will be executed on the registrar options builder (WithOptions).
-func WithSuccessCallback(callback func(e EventBus)) func(options *Options) {
+func WithSuccessCallback(callback func(e EventBus, listenerPosition int)) func(options *Options) {
 	return func(options *Options) {
 		options.successCallback = callback
 	}
@@ -42,7 +43,7 @@ func WithSuccessCallback(callback func(e EventBus)) func(options *Options) {
 
 // WithErrorCallback is function that return a function to set an error callback.
 // Will be executed on the registrar options builder (WithOptions).
-func WithErrorCallback(callback func(e EventBus, err error)) func(options *Options) {
+func WithErrorCallback(callback func(e EventBus, listenerPosition int, err error)) func(options *Options) {
 	return func(options *Options) {
 		options.errorCallback = callback
 	}
@@ -51,8 +52,9 @@ func WithErrorCallback(callback func(e EventBus, err error)) func(options *Optio
 // Init event registrar with default options.
 func Init() {
 	registrar = &Registrar{
-		channel:        make(chan EventBus),
-		eventListeners: make(map[string][]Listener),
+		channel:          make(chan EventBus),
+		eventListeners:   make(map[string][]Listener),
+		eventEmitOptions: make(map[string]*EmitOptions),
 		options: &Options{
 			maxWorker: runtime.NumCPU(),
 		},
@@ -69,19 +71,13 @@ func InitWithOptions(opt *Options) {
 	}
 
 	registrar = &Registrar{
-		channel:        make(chan EventBus),
-		eventListeners: make(map[string][]Listener),
-		options:        opt,
+		channel:          make(chan EventBus),
+		eventListeners:   make(map[string][]Listener),
+		eventEmitOptions: make(map[string]*EmitOptions),
+		options:          opt,
 	}
 
 	registrar.listen()
-}
-
-// EventBus is a struct that hold an event with its listener
-type EventBus struct {
-	Event     Event
-	listeners []Listener
-	options   *EmitOptions
 }
 
 // registrar is an event registrar singleton instance.
@@ -98,52 +94,75 @@ func (r *Registrar) listen() {
 	for i := 0; i < r.options.maxWorker; i++ {
 		go func() {
 			for bus := range r.channel {
-				o := bus.options
 
-				if o != nil && o.retry != nil {
-					if o.retry.count >= o.retry.max {
-						return
+				if bus.state == nil {
+					bus.state = &State{}
+
+					o := getEventEmitOptions(bus.Event.Name())
+
+					if o.Retry != nil && o.Retry.Max != 0 {
+						bus.state.retryable = true
 					}
 				}
 
-				retryEvent := func(position int, bus EventBus) {
-					// mark as not retryable if the config was not set.
-					if o.retry == nil && o.retry.max == 0 {
-						return
-					}
-
-					o.retry.count += 1
-					o.retry.fromPosition = position
-
-					emit(bus)
+				// mark the retryPosition as not set yet by using -1.
+				if bus.state.retryCount == 0 {
+					bus.state.retryPosition = -1
 				}
 
-				for i, listener := range bus.listeners {
-					go func(i int, eventListener Listener) {
-						err := eventListener(context.Background(), bus.Event)
-
-						if err == nil {
-							// invoke success callback
-							if registrar.options != nil && registrar.options.successCallback != nil {
-								registrar.options.successCallback(bus)
-							}
-
-							return
-						}
-
-						// retry if err is not nil
-						go retryEvent(i, bus)
-
-						// invoke any callback
-						// we may need to save in the database or log
-						// or any actions preferred.
-						if registrar.options != nil && registrar.options.errorCallback != nil {
-							registrar.options.errorCallback(bus, err)
-						}
-					}(i, listener)
-				}
+				propagateListener(bus)
 			}
 		}()
+	}
+}
+
+func propagateListener(bus EventBus) {
+	listen := func(i int, listen Listener) {
+		err := listen(context.Background(), bus.Event)
+
+		if err == nil {
+			// invoke success callback
+			if registrar.options != nil && registrar.options.successCallback != nil {
+				registrar.options.successCallback(bus, i)
+			}
+
+			return
+		}
+
+		// Retry if err is not nil
+		go retryEvent(i, bus)
+
+		// invoke any callback
+		// we may need to save in the database or log
+		// or any actions preferred.
+		if registrar.options != nil && registrar.options.errorCallback != nil {
+			registrar.options.errorCallback(bus, i, err)
+		}
+	}
+
+	for i, listener := range bus.listeners {
+		if bus.state.retryPosition != -1 && bus.state.retryPosition == i {
+			go listen(i, listener)
+		}
+
+		if bus.state.retryPosition == -1 {
+			go listen(i, listener)
+		}
+	}
+}
+
+func retryEvent(i int, bus EventBus) {
+	if bus.state.retryable == false {
+		return
+	}
+
+	o := getEventEmitOptions(bus.Event.Name())
+
+	bus.state.retryCount += 1
+	bus.state.retryPosition = i
+
+	if bus.state.retryCount <= o.Retry.Max {
+		emit(bus)
 	}
 }
 
@@ -151,22 +170,13 @@ func (r *Registrar) listen() {
 func Emit(e Event) {
 	emit(EventBus{
 		Event:     e,
-		listeners: collectEventListeners(e.Name()),
+		listeners: getEventListeners(e.Name()),
 	})
 }
 
-// EmitWithOptions public function to send an event into worker queue, but with a specific options.
-func EmitWithOptions(e Event, o *EmitOptions) {
-	emit(EventBus{
-		Event:     e,
-		listeners: collectEventListeners(e.Name()),
-		options:   o,
-	})
-}
-
-// collectEventListeners is a separated function to find a listener
+// getEventListeners is a separated function to find a Listener
 // from an emitted event.
-func collectEventListeners(eventName string) []Listener {
+func getEventListeners(eventName string) []Listener {
 	if listeners, ok := registrar.eventListeners[eventName]; ok {
 		return listeners
 	}
@@ -174,8 +184,19 @@ func collectEventListeners(eventName string) []Listener {
 	return nil
 }
 
+// getEventListeners is a separated function to find an event EmitOptions
+// from an emitted event.
+func getEventEmitOptions(eventName string) *EmitOptions {
+	if options, ok := registrar.eventEmitOptions[eventName]; ok {
+		return options
+	}
+
+	return nil
+}
+
 // RegisterListener is function to register the event with its listener into
 // the event registrar instance.
-func RegisterListener(eventName string, handlers ...Listener) {
+func RegisterListener(eventName string, options *EmitOptions, handlers ...Listener) {
 	registrar.eventListeners[eventName] = handlers
+	registrar.eventEmitOptions[eventName] = options
 }

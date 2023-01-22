@@ -21,16 +21,18 @@ func main() {
 
 	bus.InitWithOptions(
 		bus.WithOptions(
-			bus.WithSuccessCallback(func(e bus.EventBus) {
+			bus.WithSuccessCallback(func(e bus.EventBus, i int) {
 				fmt.Println("success callback for event: ", e.Event.Name())
 			}),
-			bus.WithErrorCallback(func(e bus.EventBus, err error) {
+			bus.WithErrorCallback(func(e bus.EventBus, i int, err error) {
 				fmt.Println("error callback for event: ", e.Event.Name(), ", error: ", err.Error())
 			}),
 		),
 	)
 
-	bus.RegisterListener("order-delivered", func(ctx context.Context, e bus.Event) error {
+	bus.RegisterListener("order-delivered", &bus.EmitOptions{
+		Retry: &bus.RetryOption{Max: 3},
+	}, func(ctx context.Context, e bus.Event) error {
 		fmt.Println("Hello from bus: ", e.Name(), " with payload: ", string(e.Payload()))
 
 		event := OrderDeliveredEvent{}
@@ -53,7 +55,7 @@ func main() {
 		Total:    50001,
 	}
 
-	bus.EmitWithOptions(order, bus.WithEmitOptions(bus.WithRetryOption(3)))
+	bus.Emit(order)
 
 	order2 := OrderDeliveredEvent{
 		Customer: "Rendy 2",
