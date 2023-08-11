@@ -1,7 +1,11 @@
 # Go Event Bus
 
 ## Background
-Experience using monolith application, we may find that we need to process a relatively big chunk of processes that need to be ran in the background. To address this problem, we need a process that can send a notification or message to trigger compute-heavy process. This problem statement was beautifully solved by modern app e.g. Apache Kafka, NSQ, or using redis publish-subscribe. In the other hand, to use the mentioned applications we may need additional compute resource to address the problem. In the sense of efficiency and a green computing era, we may need more lightweight process with ability to send and consume message that built-in in the the application itself, so it is more faster because the data transfer is through memory. This golang based event-bus is here leveraging the instance resource without deploying any other binaries and any data transfer overhead. 
+Experience using monolith application, we may find that we need to process a relatively big chunk of processes that need to be ran in the background. To address this problem, we need a process that can send a notification or message to trigger compute-heavy process. This problem statement was beautifully solved by modern app e.g. Apache Kafka, NSQ, or using redis publish-subscribe. 
+
+In the other hand, to use the mentioned applications we may need additional compute resource to address the problem. In the sense of efficiency and a green computing era, we may need more lightweight process with ability to send and consume message that built-in in the the application itself, so it is more faster because the data transfer is through memory. 
+
+This golang based event-bus is here leveraging the instance resource without deploying any other binaries and any data transfer overhead. 
 
 This is an Event Bus abstract, before making use of this library, you may take a look to our features:
 
